@@ -54,6 +54,24 @@ export function openNotesDir(): Promise<void> {
   return invoke<void>('open_notes_dir');
 }
 
+export function insertNoteImage(notePath: string, sourcePath: string): Promise<string> {
+  return invoke<string>('insert_note_image', { notePath, sourcePath });
+}
+
+export async function chooseImageFile(): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    title: '选择图片',
+    filters: [
+      {
+        name: '图片',
+        extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'heic', 'heif'],
+      },
+    ],
+  });
+  return typeof selected === 'string' ? selected : null;
+}
+
 export async function chooseNotesDir(defaultPath?: string): Promise<string | null> {
   const selected = await open({
     directory: true,

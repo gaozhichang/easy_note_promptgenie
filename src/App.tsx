@@ -495,11 +495,13 @@ function App() {
             lastSavedAt={lastSavedAt}
             createdAt={createdAt}
             fileName={selectedNote?.fileName || ''}
+            notePath={selectedPath}
             titleInputRef={titleInputRef}
             onTitleChange={handleTitleChange}
             onBodyChange={handleBodyChange}
             onReveal={handleReveal}
             onDelete={() => setIsDeleteOpen(true)}
+            onError={(message) => setError(message)}
           />
         ) : (
           <EmptyState onCreate={handleCreate} />

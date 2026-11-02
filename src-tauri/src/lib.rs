@@ -14,6 +14,12 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 const NOTE_EXTENSION: &str = "md";
 const DEFAULT_NOTE_TITLE: &str = "无标题笔记";
 const TRAY_ID: &str = "main-tray";
+/// 图片统一放在笔记目录的 images/ 子目录中，Markdown 里使用相对路径引用。
+const IMAGES_DIR: &str = "images";
+const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "heif",
+];
 /// 全局唤起快捷键：即使窗口隐藏在菜单栏，也能快速回到主界面。
 const GLOBAL_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 
@@ -226,6 +232,84 @@ fn unique_note_path(dir: &Path, stem: &str, exclude: Option<&Path>) -> PathBuf {
         "{stem}-{}.{NOTE_EXTENSION}",
         std::process::id()
     ))
+}
+
+/* ------------------------------------ 图片 ------------------------------------ */
+
+/// 图片文件名保持可读，同时去掉会破坏 Markdown 链接的字符。
+fn image_file_stem(input: &str) -> String {
+    let replaced: String = input
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '(' | ')' | '[' | ']'
+            | '#' | '%' => ' ',
+            ch if ch.is_control() => ' ',
+            ch => ch,
+        })
+        .collect();
+    let stem = replaced.split_whitespace().collect::<Vec<_>>().join("-");
+    let stem = stem
+        .trim_matches(|ch: char| ch == '.' || ch == '-')
+        .chars()
+        .take(60)
+        .collect::<String>();
+    if stem.is_empty() {
+        "图片".to_string()
+    } else {
+        stem
+    }
+}
+
+fn unique_image_path(dir: &Path, stem: &str, extension: &str) -> PathBuf {
+    let first = dir.join(format!("{stem}.{extension}"));
+    if !first.exists() {
+        return first;
+    }
+    for index in 2..10_000 {
+        let candidate = dir.join(format!("{stem}-{index}.{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    dir.join(format!("{stem}-{}.{extension}", std::process::id()))
+}
+
+/// 把选中的图片复制到 `<笔记目录>/images/`，返回 Markdown 中使用的相对路径。
+fn copy_image_into(notes_dir: &Path, source: &Path) -> Result<String, String> {
+    let metadata = fs::metadata(source).map_err(|e| format!("无法读取图片: {e}"))?;
+    if !metadata.is_file() {
+        return Err("请选择图片文件".to_string());
+    }
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err("图片不能超过 25 MB".to_string());
+    }
+
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("不支持这种图片格式".to_string());
+    }
+
+    let images_dir = notes_dir.join(IMAGES_DIR);
+    fs::create_dir_all(&images_dir).map_err(|e| format!("无法创建图片目录: {e}"))?;
+
+    let stem = image_file_stem(
+        source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("图片"),
+    );
+    let target = unique_image_path(&images_dir, &stem, &extension);
+    fs::copy(source, &target).map_err(|e| format!("复制图片失败: {e}"))?;
+
+    let file_name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "图片文件名无效".to_string())?;
+    Ok(format!("{IMAGES_DIR}/{file_name}"))
 }
 
 /* ---------------------------------- 系统操作 ---------------------------------- */
@@ -464,6 +548,21 @@ fn open_notes_dir(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn insert_note_image(
+    app: AppHandle,
+    note_path: String,
+    source_path: String,
+) -> Result<String, String> {
+    let notes_dir = resolve_notes_dir(&app)?;
+    let note = PathBuf::from(&note_path);
+    ensure_inside(&notes_dir, &note)?;
+    if !note.is_file() {
+        return Err("笔记文件不存在".to_string());
+    }
+    copy_image_into(&notes_dir, &PathBuf::from(source_path))
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     ALLOW_EXIT.store(true, Ordering::SeqCst);
     app.exit(0);
@@ -530,6 +629,7 @@ pub fn run() {
             delete_note,
             reveal_note,
             open_notes_dir,
+            insert_note_image,
             quit_app
         ])
         .build(tauri::generate_context!())
@@ -670,5 +770,29 @@ mod tests {
         let shortcut: tauri_plugin_global_shortcut::Shortcut =
             GLOBAL_SHORTCUT.parse().expect("全局快捷键格式应有效");
         assert!(!shortcut.mods.is_empty());
+    }
+
+    #[test]
+    fn images_are_copied_to_images_dir_with_unique_names() {
+        let root = std::env::temp_dir().join(format!("quicknote-image-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let notes = root.join("notes");
+        fs::create_dir_all(&notes).unwrap();
+
+        let source = root.join("我的 图片 (1).png");
+        fs::write(&source, b"image-data").unwrap();
+
+        let first = copy_image_into(&notes, &source).unwrap();
+        assert_eq!(first, "images/我的-图片-1.png");
+        assert_eq!(fs::read(notes.join(&first)).unwrap(), b"image-data");
+
+        let second = copy_image_into(&notes, &source).unwrap();
+        assert_eq!(second, "images/我的-图片-1-2.png");
+
+        let text = root.join("note.txt");
+        fs::write(&text, b"not an image").unwrap();
+        assert!(copy_image_into(&notes, &text).is_err());
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
