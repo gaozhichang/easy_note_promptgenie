@@ -58,6 +58,22 @@ export function insertNoteImage(notePath: string, sourcePath: string): Promise<s
   return invoke<string>('insert_note_image', { notePath, sourcePath });
 }
 
+export function saveNoteImageData(
+  notePath: string,
+  fileName: string,
+  dataUrl: string
+): Promise<string> {
+  return invoke<string>('save_note_image_data', { notePath, fileName, dataUrl });
+}
+
+export function readNoteImage(notePath: string, src: string): Promise<string> {
+  return invoke<string>('read_note_image', { notePath, src });
+}
+
+export function openExternal(url: string): Promise<void> {
+  return invoke<void>('open_external', { url });
+}
+
 export async function chooseImageFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,

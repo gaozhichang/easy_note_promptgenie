@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -137,6 +138,20 @@ fn ensure_inside(dir: &Path, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("文件路径不可用: {e}"))?;
     if parent != base {
         return Err("只能操作笔记保存目录中的文件".to_string());
+    }
+    Ok(())
+}
+
+/// 允许访问笔记目录下的子目录（例如 images/），但必须真实位于目录内部。
+fn ensure_descendant(dir: &Path, path: &Path) -> Result<(), String> {
+    let base = dir
+        .canonicalize()
+        .map_err(|e| format!("笔记目录不可用: {e}"))?;
+    let target = path
+        .canonicalize()
+        .map_err(|e| format!("图片路径不可用: {e}"))?;
+    if !target.starts_with(&base) {
+        return Err("只能读取笔记目录中的图片".to_string());
     }
     Ok(())
 }
@@ -304,6 +319,118 @@ fn copy_image_into(notes_dir: &Path, source: &Path) -> Result<String, String> {
     );
     let target = unique_image_path(&images_dir, &stem, &extension);
     fs::copy(source, &target).map_err(|e| format!("复制图片失败: {e}"))?;
+
+    let file_name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "图片文件名无效".to_string())?;
+    Ok(format!("{IMAGES_DIR}/{file_name}"))
+}
+
+fn image_mime(extension: &str) -> Option<&'static str> {
+    match extension {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "avif" => Some("image/avif"),
+        "heic" => Some("image/heic"),
+        "heif" => Some("image/heif"),
+        _ => None,
+    }
+}
+
+fn image_extension_for_mime(mime: &str) -> Option<&'static str> {
+    match mime.to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/gif" => Some("gif"),
+        "image/webp" => Some("webp"),
+        "image/svg+xml" => Some("svg"),
+        "image/bmp" => Some("bmp"),
+        "image/avif" => Some("avif"),
+        "image/heic" => Some("heic"),
+        "image/heif" => Some("heif"),
+        _ => None,
+    }
+}
+
+/// 读取笔记目录中的图片，并转成预览可以直接使用的 data URL。
+fn read_image_data_url(notes_dir: &Path, relative: &str) -> Result<String, String> {
+    let relative_path = Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err("图片路径不合法".to_string());
+    }
+
+    let image_path = notes_dir.join(relative_path);
+    if !image_path.is_file() {
+        return Err("图片不存在".to_string());
+    }
+    ensure_descendant(notes_dir, &image_path)?;
+
+    let extension = image_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let mime = image_mime(&extension).ok_or_else(|| "不支持这种图片格式".to_string())?;
+
+    let bytes = fs::read(&image_path).map_err(|e| format!("读取图片失败: {e}"))?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("图片不能超过 25 MB".to_string());
+    }
+
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
+/// 保存来自剪贴板（data URL）的图片，返回 Markdown 中使用的相对路径。
+fn save_image_data_url(
+    notes_dir: &Path,
+    file_name: &str,
+    data_url: &str,
+) -> Result<String, String> {
+    let (header, encoded) = data_url
+        .split_once(',')
+        .ok_or_else(|| "图片数据格式无效".to_string())?;
+    let header = header
+        .strip_prefix("data:")
+        .ok_or_else(|| "图片数据格式无效".to_string())?;
+    let mime = header
+        .strip_suffix(";base64")
+        .ok_or_else(|| "图片数据格式无效".to_string())?;
+    let extension = image_extension_for_mime(mime)
+        .ok_or_else(|| "不支持这种图片格式".to_string())?;
+
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "图片数据解码失败".to_string())?;
+    if bytes.is_empty() {
+        return Err("剪贴板中没有图片".to_string());
+    }
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("图片不能超过 25 MB".to_string());
+    }
+
+    let images_dir = notes_dir.join(IMAGES_DIR);
+    fs::create_dir_all(&images_dir).map_err(|e| format!("无法创建图片目录: {e}"))?;
+
+    let stem = image_file_stem(
+        Path::new(file_name)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("图片"),
+    );
+    let target = unique_image_path(&images_dir, &stem, extension);
+    fs::write(&target, bytes).map_err(|e| format!("保存图片失败: {e}"))?;
 
     let file_name = target
         .file_name()
@@ -563,6 +690,45 @@ fn insert_note_image(
 }
 
 #[tauri::command]
+fn read_note_image(app: AppHandle, note_path: String, src: String) -> Result<String, String> {
+    let notes_dir = resolve_notes_dir(&app)?;
+    let note = PathBuf::from(&note_path);
+    ensure_inside(&notes_dir, &note)?;
+    if !note.is_file() {
+        return Err("笔记文件不存在".to_string());
+    }
+    read_image_data_url(&notes_dir, &src)
+}
+
+#[tauri::command]
+fn save_note_image_data(
+    app: AppHandle,
+    note_path: String,
+    file_name: String,
+    data_url: String,
+) -> Result<String, String> {
+    let notes_dir = resolve_notes_dir(&app)?;
+    let note = PathBuf::from(&note_path);
+    ensure_inside(&notes_dir, &note)?;
+    if !note.is_file() {
+        return Err("笔记文件不存在".to_string());
+    }
+    save_image_data_url(&notes_dir, &file_name, &data_url)
+}
+
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("https://")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("mailto:"))
+    {
+        return Err("只支持打开网页或邮件链接".to_string());
+    }
+    open_path(Path::new(trimmed), false)
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     ALLOW_EXIT.store(true, Ordering::SeqCst);
     app.exit(0);
@@ -630,6 +796,9 @@ pub fn run() {
             reveal_note,
             open_notes_dir,
             insert_note_image,
+            read_note_image,
+            save_note_image_data,
+            open_external,
             quit_app
         ])
         .build(tauri::generate_context!())
@@ -792,6 +961,31 @@ mod tests {
         let text = root.join("note.txt");
         fs::write(&text, b"not an image").unwrap();
         assert!(copy_image_into(&notes, &text).is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn image_data_urls_round_trip() {
+        let root = std::env::temp_dir().join(format!("quicknote-paste-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let notes = root.join("notes");
+        let images = notes.join("images");
+        fs::create_dir_all(&images).unwrap();
+        fs::write(images.join("photo.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let data_url = read_image_data_url(&notes, "images/photo.png").unwrap();
+        assert!(data_url.starts_with("data:image/png;base64,"));
+        assert!(read_image_data_url(&notes, "../secret.png").is_err());
+
+        let saved = save_image_data_url(
+            &notes,
+            "pasted.png",
+            "data:image/png;base64,iVBORw0KGgo=",
+        )
+        .unwrap();
+        assert_eq!(saved, "images/pasted.png");
+        assert!(notes.join(&saved).is_file());
 
         let _ = fs::remove_dir_all(&root);
     }

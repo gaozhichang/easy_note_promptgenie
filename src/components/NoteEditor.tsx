@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Bold,
   Code,
+  Code2,
+  Eye,
   FolderOpen,
   Heading1,
   Heading2,
@@ -15,10 +17,33 @@ import {
   Strikethrough,
   Trash2,
 } from 'lucide-react';
-import { chooseImageFile, insertNoteImage } from '../services/notes';
+import MarkdownPreview from './MarkdownPreview';
+import {
+  chooseImageFile,
+  insertNoteImage,
+  saveNoteImageData,
+} from '../services/notes';
 import { formatClock, formatFullDate } from '../utils/time';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function imageAlt(fileName: string): string {
+  return (
+    fileName
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\[\]]/g, '')
+      .trim() || '图片'
+  );
+}
 
 type NoteEditorProps = {
   title: string;
@@ -87,6 +112,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   const notePathRef = useRef(notePath);
   const pendingSelectionRef = useRef<[number, number] | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
+  const [mode, setMode] = useState<'source' | 'preview'>('source');
 
   useEffect(() => {
     notePathRef.current = notePath;
@@ -177,14 +203,40 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         return;
       }
 
-      const alt =
-        (source.split(/[/\\]/).pop() || '图片')
-          .replace(/\.[^.]+$/, '')
-          .replace(/[\[\]]/g, '')
-          .trim() || '图片';
-      insertBlock(`![${alt}](${relativePath})`);
+      const fileName = source.split(/[/\\]/).pop() || '图片';
+      insertBlock(`![${imageAlt(fileName)}](${relativePath})`);
     } catch (error) {
       onError(`插入图片失败：${String(error)}`);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const handlePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(event.clipboardData?.items ?? []);
+    const imageItem = items.find(
+      (item) => item.kind === 'file' && item.type.startsWith('image/')
+    );
+    const file = imageItem?.getAsFile();
+
+    if (!file || !notePath || imageBusy) return;
+    event.preventDefault();
+
+    const targetPath = notePath;
+    setImageBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const relativePath = await saveNoteImageData(
+        targetPath,
+        file.name || 'pasted-image.png',
+        dataUrl
+      );
+      if (notePathRef.current !== targetPath) {
+        return;
+      }
+      insertBlock(`![${imageAlt(file.name || '图片')}](${relativePath})`);
+    } catch (error) {
+      onError(`粘贴图片失败：${String(error)}`);
     } finally {
       setImageBusy(false);
     }
@@ -255,70 +307,120 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
 
         <div className="mt-5 flex shrink-0 flex-wrap items-center gap-0.5 border-y border-slate-100 py-1">
-          <span className="mr-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">
-            Markdown
-          </span>
+          {mode === 'source' ? (
+            <>
+              <span className="mr-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">
+                Markdown
+              </span>
 
-          <ToolButton label="一级标题" onClick={() => prefixLines('# ')}>
-            <Heading1 size={15} />
-          </ToolButton>
-          <ToolButton label="二级标题" onClick={() => prefixLines('## ')}>
-            <Heading2 size={15} />
-          </ToolButton>
+              <ToolButton label="一级标题" onClick={() => prefixLines('# ')}>
+                <Heading1 size={15} />
+              </ToolButton>
+              <ToolButton label="二级标题" onClick={() => prefixLines('## ')}>
+                <Heading2 size={15} />
+              </ToolButton>
 
-          <span className="mx-1 h-4 w-px bg-slate-100" />
+              <span className="mx-1 h-4 w-px bg-slate-100" />
 
-          <ToolButton label="加粗 (⌘B)" onClick={() => wrapSelection('**', '**', '加粗文字')}>
-            <Bold size={15} />
-          </ToolButton>
-          <ToolButton label="斜体 (⌘I)" onClick={() => wrapSelection('*', '*', '斜体文字')}>
-            <Italic size={15} />
-          </ToolButton>
-          <ToolButton
-            label="删除线"
-            onClick={() => wrapSelection('~~', '~~', '删除线文字')}
-          >
-            <Strikethrough size={15} />
-          </ToolButton>
+              <ToolButton
+                label="加粗 (⌘B)"
+                onClick={() => wrapSelection('**', '**', '加粗文字')}
+              >
+                <Bold size={15} />
+              </ToolButton>
+              <ToolButton
+                label="斜体 (⌘I)"
+                onClick={() => wrapSelection('*', '*', '斜体文字')}
+              >
+                <Italic size={15} />
+              </ToolButton>
+              <ToolButton
+                label="删除线"
+                onClick={() => wrapSelection('~~', '~~', '删除线文字')}
+              >
+                <Strikethrough size={15} />
+              </ToolButton>
 
-          <span className="mx-1 h-4 w-px bg-slate-100" />
+              <span className="mx-1 h-4 w-px bg-slate-100" />
 
-          <ToolButton label="无序列表" onClick={() => prefixLines('- ')}>
-            <List size={15} />
-          </ToolButton>
-          <ToolButton label="有序列表" onClick={() => prefixLines('', true)}>
-            <ListOrdered size={15} />
-          </ToolButton>
-          <ToolButton label="引用" onClick={() => prefixLines('> ')}>
-            <Quote size={15} />
-          </ToolButton>
-          <ToolButton label="行内代码" onClick={() => wrapSelection('`', '`', '代码')}>
-            <Code size={15} />
-          </ToolButton>
+              <ToolButton label="无序列表" onClick={() => prefixLines('- ')}>
+                <List size={15} />
+              </ToolButton>
+              <ToolButton label="有序列表" onClick={() => prefixLines('', true)}>
+                <ListOrdered size={15} />
+              </ToolButton>
+              <ToolButton label="引用" onClick={() => prefixLines('> ')}>
+                <Quote size={15} />
+              </ToolButton>
+              <ToolButton label="行内代码" onClick={() => wrapSelection('`', '`', '代码')}>
+                <Code size={15} />
+              </ToolButton>
 
-          <span className="mx-1 h-4 w-px bg-slate-100" />
+              <span className="mx-1 h-4 w-px bg-slate-100" />
 
-          <ToolButton label="链接 (⌘K)" onClick={insertLink}>
-            <Link size={15} />
-          </ToolButton>
-          <ToolButton
-            label={imageBusy ? '正在插入图片…' : '插入图片'}
-            onClick={() => void handleInsertImage()}
-            disabled={imageBusy || !notePath}
-          >
-            {imageBusy ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
-          </ToolButton>
+              <ToolButton label="链接 (⌘K)" onClick={insertLink}>
+                <Link size={15} />
+              </ToolButton>
+              <ToolButton
+                label={imageBusy ? '正在插入图片…' : '插入图片'}
+                onClick={() => void handleInsertImage()}
+                disabled={imageBusy || !notePath}
+              >
+                {imageBusy ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <ImagePlus size={15} />
+                )}
+              </ToolButton>
+            </>
+          ) : (
+            <span className="px-1 text-[11px] text-slate-400">预览模式 · 只读</span>
+          )}
+
+          <div className="ml-auto flex shrink-0 items-center rounded-md bg-slate-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode('source')}
+              className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
+                mode === 'source'
+                  ? 'bg-white text-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Code2 size={12} />
+              源码
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('preview')}
+              className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
+                mode === 'preview'
+                  ? 'bg-white text-slate-700 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Eye size={12} />
+              预览
+            </button>
+          </div>
         </div>
 
-        <textarea
-          ref={bodyInputRef}
-          value={body}
-          onChange={(event) => onBodyChange(event.target.value)}
-          onKeyDown={handleBodyKeyDown}
-          placeholder="开始记录… 支持 Markdown 语法"
-          spellCheck={false}
-          className="mt-3 min-h-0 w-full flex-1 resize-none border-none bg-transparent pb-2 text-[15px] leading-[1.9] text-slate-700 outline-none placeholder:text-slate-300"
-        />
+        {mode === 'preview' ? (
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            <MarkdownPreview body={body} notePath={notePath} onError={onError} />
+          </div>
+        ) : (
+          <textarea
+            ref={bodyInputRef}
+            value={body}
+            onChange={(event) => onBodyChange(event.target.value)}
+            onKeyDown={handleBodyKeyDown}
+            onPaste={handlePaste}
+            placeholder="开始记录… 支持 Markdown，可直接粘贴图片"
+            spellCheck={false}
+            className="mt-3 min-h-0 w-full flex-1 resize-none border-none bg-transparent pb-2 text-[15px] leading-[1.9] text-slate-700 outline-none placeholder:text-slate-300"
+          />
+        )}
 
         <footer className="flex shrink-0 items-center justify-between border-t border-slate-100 pt-3 text-[10.5px] text-slate-400">
           <span>{charCount} 字 · Markdown</span>

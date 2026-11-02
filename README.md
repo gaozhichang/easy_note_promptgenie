@@ -11,8 +11,9 @@
 - 选中笔记后直接在右侧编辑，停止输入 0.5 秒自动保存
 - 正文第一行就是标题，保存时文件名自动跟随标题；重名时自动追加序号
 - 内置 Markdown 工具栏：标题、加粗、斜体、删除线、列表、引用、代码、链接
-- 支持插入图片，图片自动复制到笔记目录的 `images/` 子目录
-- Markdown 以纯文本编辑，不渲染预览，笔记仍然是普通 `.md` 文件
+- 支持源码 / 预览双模式，预览支持 GFM 表格、任务列表和删除线
+- 支持选择图片或直接从剪贴板粘贴图片，图片自动复制到笔记目录的 `images/` 子目录
+- 笔记仍然是普通 `.md` 文件，可以随时用其他编辑器打开
 - 保存目录可自定义，默认是 `~/快捷记事本`
 - 菜单栏常驻图标，点击直接显示并聚焦主窗口
 - 全局快捷键 `⌘⇧Space`，即使窗口隐藏在菜单栏也能快速唤起
@@ -43,9 +44,14 @@
 - 一级/二级标题、加粗、斜体、删除线
 - 无序列表、有序列表、引用、行内代码
 - 链接：`[链接文字](https://)`
-- 图片：选择本地图片后，自动插入 `![图片名](images/图片名.png)`
+- 图片：选择本地图片，或直接在编辑器中粘贴剪贴板图片
 
-插入图片时，图片会被复制到当前笔记目录的 `images/` 子目录，不会写入应用内部数据库。笔记中的路径是相对路径，因此整个笔记目录可以直接拷贝或备份。
+编辑器右上角可以在「源码」和「预览」之间切换：
+
+- 源码：纯文本 Markdown 编辑器，带格式工具栏
+- 预览：渲染后的 Markdown，支持 GFM 表格、任务列表、删除线和代码块
+
+插入或粘贴图片时，图片会被复制到当前笔记目录的 `images/` 子目录，不会写入应用内部数据库。笔记中的路径是相对路径，因此整个笔记目录可以直接拷贝或备份。
 
 删除笔记时不会自动删除 `images/` 中被引用的图片，避免误删其他笔记共用的图片；需要时可以在访达中手动清理。
 
@@ -103,16 +109,18 @@ pnpm tauri build
 - React 18 + TypeScript + Vite
 - TailwindCSS
 - lucide-react
+- Markdown 渲染：[react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm)（均为 MIT）
+- 排版：[Tailwind Typography](https://github.com/tailwindlabs/tailwindcss-typography)（MIT）
 
 ## 项目结构
 
 ```text
 src/                     React 界面
-  components/            侧边栏、编辑器、设置、确认框
+  components/            侧边栏、编辑器、Markdown 预览、设置、确认框
   services/notes.ts      笔记相关的 Tauri invoke 封装
   App.tsx                选中、自动保存、快捷键、窗口事件
 src-tauri/
-  src/lib.rs             笔记文件读写、设置、托盘与退出流程
+  src/lib.rs             笔记文件读写、图片、设置、托盘与退出流程
   Info.plist             macOS 文件夹访问说明
   icons/                 应用图标
 ```
@@ -127,8 +135,8 @@ cd src-tauri && cargo test
 ## 已知限制
 
 - 目前主要在 macOS 上验证，Windows / Linux 仅保留了基础路径处理
-- Markdown 只提供语法输入，不渲染、没有预览窗格
-- 不支持富文本、图片粘贴和云同步
+- 预览不渲染原始 HTML，仅渲染标准 Markdown / GFM
+- 不支持拖拽图片、富文本编辑和云同步
 - 插入的图片会复制到 `images/`，删除笔记时不会自动清理
 - 删除操作不可撤销，请留意确认提示
 
