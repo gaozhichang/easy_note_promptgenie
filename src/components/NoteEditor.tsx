@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Bold,
+  Check,
   Code,
   Code2,
+  Columns2,
+  Copy,
   Eye,
   FolderOpen,
   Heading1,
@@ -20,6 +23,8 @@ import {
 import MarkdownPreview from './MarkdownPreview';
 import {
   chooseImageFile,
+  composeNote,
+  copyText,
   insertNoteImage,
   saveNoteImageData,
 } from '../services/notes';
@@ -112,7 +117,17 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
   const notePathRef = useRef(notePath);
   const pendingSelectionRef = useRef<[number, number] | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
-  const [mode, setMode] = useState<'source' | 'preview'>('source');
+  const [mode, setMode] = useState<'source' | 'split' | 'preview'>('split');
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     notePathRef.current = notePath;
@@ -258,6 +273,35 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     }
   };
 
+  const handleCopySource = async () => {
+    try {
+      await copyText(composeNote(title, body));
+      setCopied(true);
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 1600);
+    } catch (error) {
+      onError(`复制源码失败：${String(error)}`);
+    }
+  };
+
+  const sourceEditor = (className: string) => (
+    <textarea
+      ref={bodyInputRef}
+      value={body}
+      onChange={(event) => onBodyChange(event.target.value)}
+      onKeyDown={handleBodyKeyDown}
+      onPaste={handlePaste}
+      placeholder="开始记录… 支持 Markdown，可直接粘贴图片"
+      spellCheck={false}
+      className={className}
+    />
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-100 px-5">
@@ -286,7 +330,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-[780px] flex-1 flex-col px-10 pb-4 pt-10">
+      <div
+        className={`mx-auto flex min-h-0 w-full flex-1 flex-col pb-4 pt-10 ${
+          mode === 'split' ? 'px-6' : 'max-w-[780px] px-10'
+        }`}
+      >
         <input
           ref={titleInputRef}
           value={title}
@@ -307,7 +355,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
 
         <div className="mt-5 flex shrink-0 flex-wrap items-center gap-0.5 border-y border-slate-100 py-1">
-          {mode === 'source' ? (
+          {mode !== 'preview' ? (
             <>
               <span className="mr-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-300">
                 Markdown
@@ -377,49 +425,101 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
             <span className="px-1 text-[11px] text-slate-400">预览模式 · 只读</span>
           )}
 
-          <div className="ml-auto flex shrink-0 items-center rounded-md bg-slate-100 p-0.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setMode('source')}
-              className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
-                mode === 'source'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600'
+              onClick={() => void handleCopySource()}
+              title="复制完整 Markdown（含标题）"
+              aria-label="复制完整 Markdown 源码"
+              className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${
+                copied
+                  ? 'bg-emerald-50 text-emerald-600'
+                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
               }`}
             >
-              <Code2 size={12} />
-              源码
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? '已复制' : '复制源码'}
             </button>
-            <button
-              type="button"
-              onClick={() => setMode('preview')}
-              className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
-                mode === 'preview'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              <Eye size={12} />
-              预览
-            </button>
+
+            <div className="flex items-center rounded-md bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode('source')}
+                className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
+                  mode === 'source'
+                    ? 'bg-white text-slate-700 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <Code2 size={12} />
+                源码
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('split')}
+                className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
+                  mode === 'split'
+                    ? 'bg-white text-slate-700 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <Columns2 size={12} />
+                分屏
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('preview')}
+                className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors ${
+                  mode === 'preview'
+                    ? 'bg-white text-slate-700 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <Eye size={12} />
+                预览
+              </button>
+            </div>
           </div>
         </div>
 
-        {mode === 'preview' ? (
+        {mode === 'split' ? (
+          <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 grid-rows-2 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-2 lg:grid-rows-1">
+            <div className="flex min-h-0 min-w-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
+              <div className="flex h-8 shrink-0 items-center justify-between border-b border-slate-100 px-3 text-[10.5px] font-medium text-slate-400">
+                <span>源码</span>
+                <span className="font-normal text-slate-300">Markdown</span>
+              </div>
+              {sourceEditor(
+                'min-h-0 w-full flex-1 resize-none bg-transparent px-4 py-3 text-[14px] leading-[1.8] text-slate-700 outline-none placeholder:text-slate-300'
+              )}
+            </div>
+
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="flex h-8 shrink-0 items-center justify-between border-b border-slate-100 px-3 text-[10.5px] font-medium text-slate-400">
+                <span>预览</span>
+                <span className="font-normal text-slate-300">实时</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+                <MarkdownPreview
+                  body={body}
+                  notePath={notePath}
+                  onError={onError}
+                />
+              </div>
+            </div>
+          </div>
+        ) : mode === 'preview' ? (
           <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-            <MarkdownPreview body={body} notePath={notePath} onError={onError} />
+            <MarkdownPreview
+              body={body}
+              notePath={notePath}
+              onError={onError}
+            />
           </div>
         ) : (
-          <textarea
-            ref={bodyInputRef}
-            value={body}
-            onChange={(event) => onBodyChange(event.target.value)}
-            onKeyDown={handleBodyKeyDown}
-            onPaste={handlePaste}
-            placeholder="开始记录… 支持 Markdown，可直接粘贴图片"
-            spellCheck={false}
-            className="mt-3 min-h-0 w-full flex-1 resize-none border-none bg-transparent pb-2 text-[15px] leading-[1.9] text-slate-700 outline-none placeholder:text-slate-300"
-          />
+          sourceEditor(
+            'mt-3 min-h-0 w-full flex-1 resize-none border-none bg-transparent pb-2 text-[15px] leading-[1.9] text-slate-700 outline-none placeholder:text-slate-300'
+          )
         )}
 
         <footer className="flex shrink-0 items-center justify-between border-t border-slate-100 pt-3 text-[10.5px] text-slate-400">

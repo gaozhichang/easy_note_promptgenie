@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 export interface Note {
   path: string;
@@ -72,6 +73,10 @@ export function readNoteImage(notePath: string, src: string): Promise<string> {
 
 export function openExternal(url: string): Promise<void> {
   return invoke<void>('open_external', { url });
+}
+
+export function copyText(text: string): Promise<void> {
+  return writeText(text);
 }
 
 export async function chooseImageFile(): Promise<string | null> {

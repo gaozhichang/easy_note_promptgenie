@@ -101,7 +101,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="mt-5 border-t border-slate-100 pt-4">
             <h3 className="text-[12px] font-semibold text-slate-700">快捷键</h3>
             <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11.5px] text-slate-500">
-              <span>打开主窗口（全局）</span>
+              <span>显示 / 隐藏主窗口（全局）</span>
               <span className="text-right font-mono text-slate-400">⌘ ⇧ Space</span>
               <span>新建笔记</span>
               <span className="text-right font-mono text-slate-400">⌘ N</span>
@@ -113,7 +113,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <span className="text-right font-mono text-slate-400">⌘ Q</span>
             </div>
             <p className="mt-2 text-[11px] leading-5 text-slate-400">
-              即使窗口隐藏在菜单栏，按 ⌘ ⇧ Space 也能直接打开主窗口。
+              即使窗口隐藏在菜单栏，按 ⌘ ⇧ Space 也能直接打开主窗口；窗口已在前台时，再按一次会隐藏。
             </p>
           </div>
         </div>

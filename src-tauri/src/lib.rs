@@ -512,6 +512,19 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// 同一个全局快捷键用于显示/隐藏：窗口已在前台时隐藏，否则显示并聚焦。
+fn toggle_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let visible = window.is_visible().unwrap_or(false);
+        let focused = window.is_focused().unwrap_or(false);
+        if visible && focused {
+            let _ = window.hide();
+            return;
+        }
+    }
+    show_main_window(app);
+}
+
 /* ------------------------------------ 命令 ------------------------------------ */
 
 #[tauri::command]
@@ -740,11 +753,12 @@ fn quit_app(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        show_main_window(app);
+                        toggle_main_window(app);
                     }
                 })
                 .build(),
@@ -753,7 +767,7 @@ pub fn run() {
             // 首次启动时确保笔记目录存在
             let _ = resolve_notes_dir(app.handle());
 
-            // 全局快捷键：窗口隐藏时也能唤起主窗口
+            // 全局快捷键：显示 / 隐藏主窗口
             match app.global_shortcut().register(GLOBAL_SHORTCUT) {
                 Ok(()) => println!("已注册全局快捷键: {GLOBAL_SHORTCUT}"),
                 Err(err) => eprintln!("注册全局快捷键失败: {err}"),
