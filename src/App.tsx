@@ -1,397 +1,570 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, FileText, Loader2, Plus, X } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import Sidebar from './components/Sidebar';
-import MainContent from './components/MainContent';
-import PromptEditor from './components/PromptEditor';
-import TagManager from './components/TagManager'; // 导入标签管理组件
-import Settings from './components/Settings'; // 导入设置组件
-import ConfirmDialog from './components/ConfirmDialog'; // 导入自定义对话框
-import { initDatabase, getAllPrompts, createPrompt, updatePrompt, toggleFavorite, deletePrompt, Prompt, PromptInput, updateTrayMenu, copyPromptToClipboard, getPrompt, updatePromptLastUsed } from './services/db';
+import NoteEditor, { SaveStatus } from './components/NoteEditor';
+import SettingsModal from './components/SettingsModal';
+import ConfirmDialog from './components/ConfirmDialog';
+import {
+  Note,
+  SettingsInfo,
+  chooseNotesDir,
+  composeNote,
+  createNote,
+  deleteNote,
+  getSettings,
+  listNotes,
+  openNotesDir,
+  resetNotesDir,
+  revealNote,
+  saveNote,
+  setNotesDir,
+  splitNote,
+} from './services/notes';
 
 function App() {
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState<Prompt | null>(null);
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [status, setStatus] = useState<SaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [createdAt, setCreatedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isTagManagerOpen, setIsTagManagerOpen] = useState(false); // 添加标签管理状态
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // 添加设置状态
-  const [searchTerm, setSearchTerm] = useState(''); // 添加搜索词状态
+  const [settings, setSettings] = useState<SettingsInfo | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
-  // 当前过滤模式
-  const [filterMode, setFilterMode] = useState<'all' | 'favorites'>('all');
-  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const titleRef = useRef('');
+  const bodyRef = useRef('');
+  const selectedRef = useRef<string | null>(null);
+  const dirtyRef = useRef(false);
+  const timerRef = useRef<number | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // 过滤后的提示词
-  const filteredPrompts = React.useMemo(() => {
-    let result = [...prompts];
-
-    // 收藏过滤
-    if (filterMode === 'favorites') {
-      result = result.filter(prompt => prompt.isFavorite);
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
+  }, []);
 
-    // 标签过滤
-    if (selectedTagId) {
-      result = result.filter(prompt =>
-        prompt.tags.some(tag => tag.id === selectedTagId)
-      );
-    }
+  const applyNote = useCallback(
+    (note: Note) => {
+      clearTimer();
+      const parts = splitNote(note.content);
+      selectedRef.current = note.path;
+      titleRef.current = parts.title;
+      bodyRef.current = parts.body;
+      dirtyRef.current = false;
+      setSelectedPath(note.path);
+      setTitle(parts.title);
+      setBody(parts.body);
+      setLastSavedAt(note.updatedAt);
+      setCreatedAt(note.createdAt);
+      setStatus('idle');
+    },
+    [clearTimer]
+  );
 
-    // 搜索过滤
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase().trim();
-      result = result.filter(prompt =>
-        prompt.title.toLowerCase().includes(term) ||
-        prompt.content.toLowerCase().includes(term) ||
-        prompt.tags.some(tag => tag.name.toLowerCase().includes(term))
-      );
-    }
+  const clearEditor = useCallback(() => {
+    clearTimer();
+    selectedRef.current = null;
+    titleRef.current = '';
+    bodyRef.current = '';
+    dirtyRef.current = false;
+    setSelectedPath(null);
+    setTitle('');
+    setBody('');
+    setLastSavedAt(null);
+    setCreatedAt(null);
+    setStatus('idle');
+  }, [clearTimer]);
 
-    return result;
-  }, [prompts, filterMode, selectedTagId, searchTerm]);
+  const runSave = useCallback((): Promise<void> => {
+    const task = async () => {
+      const path = selectedRef.current;
+      if (!path || !dirtyRef.current) {
+        return;
+      }
 
-  // 确认对话框状态
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [promptToDeleteId, setPromptToDeleteId] = useState<string | null>(null);
+      const content = composeNote(titleRef.current, bodyRef.current);
+      dirtyRef.current = false;
+      setStatus('saving');
 
-  // 初始化数据库并加载提示词
-  useEffect(() => {
-    const loadData = async () => {
       try {
-        setIsLoading(true);
-        setError(null); // 清除旧错误
-        console.log('App: Initializing database...');
-        await initDatabase(); // 等待初始化完成
-        console.log('App: Database initialized. Loading prompts...');
-        const loadedPrompts = await getAllPrompts();
-        setPrompts(loadedPrompts);
-        console.log('App: Prompts loaded.');
+        const updated = await saveNote(path, content);
 
-        // 启动时更新托盘菜单
-        updateTrayMenu().catch(err => {
-          console.error('启动时更新托盘菜单失败:', err);
+        if (selectedRef.current === path) {
+          selectedRef.current = updated.path;
+          setSelectedPath(updated.path);
+        }
+
+        setNotes((previous) => {
+          const rest = previous.filter(
+            (note) => note.path !== path && note.path !== updated.path
+          );
+          return [updated, ...rest].sort((a, b) => b.updatedAt - a.updatedAt);
         });
-
-        // 监听托盘菜单中提示词被选择的事件
-        const { listen } = await import('@tauri-apps/api/event');
-        // 监听常规复制事件
-        const unlistenTrayPrompt = await listen('tray-prompt-selected', (event) => {
-          const promptId = event.payload as string;
-          console.log(`托盘菜单选择了提示词: ${promptId}`);
-          copyPromptToClipboard(promptId)
-            .then(success => {
-              if (success) {
-                console.log('已通过托盘菜单复制提示词');
-              } else {
-                console.error('通过托盘菜单复制提示词失败');
-              }
-            })
-            .catch(err => {
-              console.error('处理托盘菜单选择事件时出错:', err);
-            });
-        });
-
-        // 监听直接粘贴到输入框的事件
-        const unlistenPastePrompt = await listen('paste-prompt-content', async (event) => {
-          const promptId = event.payload as string;
-          console.log(`准备将提示词直接插入到输入框: ${promptId}`);
-
-          try {
-            // 1. 获取提示词内容
-            const prompt = await getPrompt(promptId);
-            if (!prompt) {
-              console.error(`找不到ID为${promptId}的提示词`);
-              return;
-            }
-
-            // 2. 将内容复制到剪贴板
-            const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
-            await writeText(prompt.content);
-            console.log(`提示词 "${prompt.title}" 已复制到剪贴板`);
-
-            // 3. 检查是否启用了自动插入功能
-            const trayAutoInsert = localStorage.getItem('trayAutoInsert') !== 'false'; // 默认为 true
-
-            if (trayAutoInsert) {
-              // 模拟粘贴操作
-              const { invoke } = await import('@tauri-apps/api/core');
-              await invoke('simulate_paste');
-              console.log('已触发粘贴操作');
-            } else {
-              console.log('自动插入功能已禁用，仅复制到剪贴板');
-            }
-
-            // 4. 更新最后使用时间
-            await updatePromptLastUsed(promptId);
-          } catch (err) {
-            console.error('粘贴提示词内容时出错:', err);
-          }
-        });
-
-        // 组件卸载时移除事件监听
-        return () => {
-          unlistenTrayPrompt();
-          unlistenPastePrompt();
-        };
+        setLastSavedAt(updated.updatedAt);
+        setStatus(dirtyRef.current ? 'dirty' : 'saved');
       } catch (err) {
-        console.error('App: 加载数据失败:', err);
-        setError('无法加载数据，请检查数据库连接或重启应用。');
-      } finally {
-        setIsLoading(false);
+        dirtyRef.current = true;
+        setStatus('error');
+        setError(`保存失败：${String(err)}`);
       }
     };
 
-    loadData();
-  }, []); // 空依赖数组，确保只运行一次
+    saveChainRef.current = saveChainRef.current.then(task, task);
+    return saveChainRef.current;
+  }, []);
 
-  const handleEditorOpen = (prompt?: Prompt) => {
-    setEditingPrompt(prompt || null);
-    setIsEditorOpen(true);
-  };
+  const scheduleSave = useCallback(() => {
+    dirtyRef.current = true;
+    setStatus('dirty');
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      void runSave();
+    }, 500);
+  }, [clearTimer, runSave]);
 
-  const handleEditorClose = () => {
-    setIsEditorOpen(false);
-    setEditingPrompt(null);
-  };
-
-  const handleSavePrompt = async (promptData: PromptInput) => {
-    setError(null); // 清除旧错误
-    try {
-      if (editingPrompt) {
-        const updatedPrompt = await updatePrompt(editingPrompt.id, promptData);
-        setPrompts(prevPrompts =>
-          prevPrompts.map(p => p.id === updatedPrompt.id ? updatedPrompt : p)
-        );
-      } else {
-        const newPrompt = await createPrompt(promptData);
-        setPrompts(prevPrompts => [newPrompt, ...prevPrompts]);
-      }
-      setIsEditorOpen(false);
-      setEditingPrompt(null);
-    } catch (err) {
-      console.error('保存提示词失败:', err);
-      setError('保存提示词失败，请重试。');
-    }
-  };
-
-  // 打开删除确认对话框
-  const handleDeletePrompt = async (id: string) => {
-    setPromptToDeleteId(id); // 设置要删除的 ID
-    setIsConfirmOpen(true); // 打开确认对话框
-  };
-
-  // 确认删除操作
-  const confirmDeletion = async () => {
-    if (!promptToDeleteId) return;
-    setError(null);
-    try {
-      await deletePrompt(promptToDeleteId);
-      setPrompts(prevPrompts => prevPrompts.filter(p => p.id !== promptToDeleteId));
-    } catch (err) {
-      console.error('删除提示词失败:', err);
-      setError('删除提示词失败，请重试。');
-    } finally {
-      setIsConfirmOpen(false); // 关闭对话框
-      setPromptToDeleteId(null); // 清空 ID
-    }
-  };
-
-  // 取消删除操作
-  const cancelDeletion = () => {
-    setIsConfirmOpen(false); // 关闭对话框
-    setPromptToDeleteId(null); // 清空 ID
-  };
-
-  const handleFavoriteToggle = async (id: string) => {
-    setError(null);
-    try {
-      const isFavorite = await toggleFavorite(id);
-      setPrompts(prevPrompts =>
-        prevPrompts.map(p => p.id === id ? { ...p, isFavorite } : p)
+  const handleTitleChange = useCallback(
+    (value: string) => {
+      titleRef.current = value;
+      setTitle(value);
+      setNotes((previous) =>
+        previous.map((note) =>
+          note.path === selectedRef.current ? { ...note, title: value } : note
+        )
       );
-    } catch (err) {
-      console.error('切换收藏状态失败:', err);
-      setError('操作失败，请重试。');
-    }
-  };
+      scheduleSave();
+    },
+    [scheduleSave]
+  );
 
-  // 添加标签状态变化事件处理
-  const handleTagsChanged = async () => {
-    // 当标签被修改或删除后重新加载提示词列表，确保标签变更反映到UI上
+  const handleBodyChange = useCallback(
+    (value: string) => {
+      bodyRef.current = value;
+      setBody(value);
+      scheduleSave();
+    },
+    [scheduleSave]
+  );
+
+  // 首次加载
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [info, loadedNotes] = await Promise.all([getSettings(), listNotes()]);
+        if (cancelled) return;
+        setSettings(info);
+        setNotes(loadedNotes);
+        if (loadedNotes.length > 0) {
+          applyNote(loadedNotes[0]);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(`加载笔记失败：${String(err)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyNote]);
+
+  const handleSelect = useCallback(
+    async (note: Note) => {
+      if (note.path === selectedRef.current) {
+        return;
+      }
+      if (dirtyRef.current) {
+        await runSave();
+      }
+      applyNote(note);
+    },
+    [applyNote, runSave]
+  );
+
+  const handleCreate = useCallback(async () => {
     try {
-      setIsLoading(true);
-      const loadedPrompts = await getAllPrompts();
-      setPrompts(loadedPrompts);
+      if (dirtyRef.current) {
+        await runSave();
+      }
+      const note = await createNote();
+      setNotes((previous) => [note, ...previous]);
+      setSearchTerm('');
+      applyNote(note);
+      window.setTimeout(() => titleInputRef.current?.focus(), 80);
     } catch (err) {
-      console.error('刷新提示词列表失败:', err);
-      setError('刷新数据失败，请重试。');
-    } finally {
-      setIsLoading(false);
+      setError(`新建笔记失败：${String(err)}`);
     }
-  };
+  }, [applyNote, runSave]);
 
-  // 打开标签管理器
-  const openTagManager = () => {
-    setIsTagManagerOpen(true);
-  };
+  const handleRefresh = useCallback(async () => {
+    try {
+      if (dirtyRef.current) {
+        await runSave();
+      }
+      await saveChainRef.current;
 
-  // 关闭标签管理器
-  const closeTagManager = async () => {
-    setIsTagManagerOpen(false);
-    // 关闭标签管理器后刷新数据
-    await handleTagsChanged();
-  };
+      const loadedNotes = await listNotes();
+      setNotes(loadedNotes);
 
-  // 打开设置
-  const openSettings = () => {
-    setIsSettingsOpen(true);
-  };
+      const currentPath = selectedRef.current;
+      const current = currentPath
+        ? loadedNotes.find((note) => note.path === currentPath)
+        : undefined;
 
-  // 关闭设置
-  const closeSettings = () => {
-    setIsSettingsOpen(false);
-  };
-
-  // 处理侧边栏收藏项点击
-  const handleFavoritesClick = () => {
-    setFilterMode('favorites');
-    setSelectedTagId(null);
-  };
-
-  // 处理"所有提示词"点击
-  const handleAllPromptsClick = () => {
-    setFilterMode('all');
-    setSelectedTagId(null);
-  };
-
-  // 处理标签点击
-  const handleTagClick = (tagId: string) => {
-    setSelectedTagId(tagId);
-    setFilterMode('all'); // 重置收藏过滤以避免混淆
-  };
-
-  // 处理搜索输入变化
-  const handleSearchChange = (term: string) => {
-    setSearchTerm(term);
-  };
-
-  // 获取当前视图的标题
-  const getContentTitle = () => {
-    let baseTitle = '';
-
-    // 确定基础标题（根据过滤条件）
-    if (selectedTagId) {
-      const tag = prompts
-        .flatMap(p => p.tags)
-        .find(t => t.id === selectedTagId);
-      baseTitle = tag ? `标签: ${tag.name}` : '已过滤提示词';
-    } else {
-      baseTitle = filterMode === 'favorites' ? '收藏提示词' : '所有提示词';
+      if (current) {
+        applyNote(current);
+      } else if (loadedNotes.length > 0) {
+        applyNote(loadedNotes[0]);
+      } else {
+        clearEditor();
+      }
+    } catch (err) {
+      setError(`刷新失败：${String(err)}`);
     }
+  }, [applyNote, clearEditor, runSave]);
 
-    // 如果有搜索词，追加搜索信息
-    if (searchTerm.trim()) {
-      return `${baseTitle} (搜索: "${searchTerm}")`;
+  const handleReveal = useCallback(() => {
+    if (!selectedRef.current) return;
+    revealNote(selectedRef.current).catch((err) => setError(`打开访达失败：${String(err)}`));
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    setIsDeleteOpen(false);
+    clearTimer();
+
+    try {
+      if (dirtyRef.current) {
+        await runSave();
+      }
+      await saveChainRef.current;
+
+      const path = selectedRef.current;
+      if (!path) return;
+
+      await deleteNote(path);
+
+      // 重新从磁盘读取，避免刚保存时文件名已变化导致列表残留旧条目
+      const remaining = await listNotes();
+      setNotes(remaining);
+      if (remaining.length > 0) {
+        applyNote(remaining[0]);
+      } else {
+        clearEditor();
+      }
+    } catch (err) {
+      setError(`删除失败：${String(err)}`);
     }
+  }, [applyNote, clearEditor, clearTimer, runSave]);
 
-    return baseTitle;
-  };
+  const changeDirectory = useCallback(
+    async (action: () => Promise<SettingsInfo>) => {
+      setSettingsBusy(true);
+      try {
+        if (dirtyRef.current) {
+          await runSave();
+        }
+        await saveChainRef.current;
+
+        const info = await action();
+        setSettings(info);
+
+        const loadedNotes = await listNotes();
+        setNotes(loadedNotes);
+        setSearchTerm('');
+        if (loadedNotes.length > 0) {
+          applyNote(loadedNotes[0]);
+        } else {
+          clearEditor();
+        }
+        setIsSettingsOpen(false);
+      } catch (err) {
+        setError(`切换目录失败：${String(err)}`);
+      } finally {
+        setSettingsBusy(false);
+      }
+    },
+    [applyNote, clearEditor, runSave]
+  );
+
+  const handleChooseDir = useCallback(async () => {
+    if (!settings) return;
+    try {
+      const dir = await chooseNotesDir(settings.notesDir);
+      if (!dir) return;
+      await changeDirectory(() => setNotesDir(dir));
+    } catch (err) {
+      setError(`选择目录失败：${String(err)}`);
+    }
+  }, [changeDirectory, settings]);
+
+  const handleResetDir = useCallback(async () => {
+    await changeDirectory(() => resetNotesDir());
+  }, [changeDirectory]);
+
+  const handleOpenDir = useCallback(() => {
+    openNotesDir().catch((err) => setError(`打开目录失败：${String(err)}`));
+  }, []);
+
+  // 关闭窗口前保存，然后隐藏窗口（⌘Q 才会退出）
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const windowHandle = getCurrentWindow();
+        const stop = await windowHandle.onCloseRequested(async (event) => {
+          event.preventDefault();
+          if (dirtyRef.current) {
+            await runSave();
+          }
+          await saveChainRef.current;
+          await windowHandle.hide();
+        });
+        if (disposed) {
+          stop();
+        } else {
+          unlisten = stop;
+        }
+      } catch (err) {
+        console.error('注册关闭事件失败:', err);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [runSave]);
+
+  // ⌘Q / 托盘退出：先落盘，再真正退出
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      try {
+        const stop = await listen('quit-requested', async () => {
+          try {
+            if (dirtyRef.current) {
+              await runSave();
+            }
+            await saveChainRef.current;
+          } catch (err) {
+            console.error('退出前保存失败:', err);
+          }
+
+          try {
+            await invoke('quit_app');
+          } catch (err) {
+            console.error('退出失败:', err);
+          }
+        });
+
+        if (disposed) {
+          stop();
+        } else {
+          unlisten = stop;
+        }
+      } catch (err) {
+        console.error('注册退出事件失败:', err);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [runSave]);
+
+  // 窗口失焦时顺手保存
+  useEffect(() => {
+    const handleBlur = () => {
+      if (dirtyRef.current) {
+        void runSave();
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, [runSave]);
+
+  // 快捷键
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const withMeta = event.metaKey || event.ctrlKey;
+      if (!withMeta) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'n') {
+        event.preventDefault();
+        void handleCreate();
+      } else if (key === 's') {
+        event.preventDefault();
+        clearTimer();
+        void runSave();
+      } else if (key === 'f') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (key === 'r') {
+        event.preventDefault();
+        void handleRefresh();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [clearTimer, handleCreate, handleRefresh, runSave]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
+  const filteredNotes = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      return notes;
+    }
+    return notes.filter((note) => {
+      return (
+        note.title.toLowerCase().includes(term) ||
+        note.content.toLowerCase().includes(term)
+      );
+    });
+  }, [notes, searchTerm]);
+
+  const selectedNote = useMemo(
+    () => notes.find((note) => note.path === selectedPath) ?? null,
+    [notes, selectedPath]
+  );
+
+  const folderName = useMemo(() => {
+    const dir = settings?.notesDir;
+    if (!dir) return '';
+    const segments = dir.split(/[/\\]/).filter(Boolean);
+    return segments[segments.length - 1] || dir;
+  }, [settings]);
 
   return (
-    <>
-      {/* 标题栏与内容之间的分割线 */}
-      <div className="fixed top-0 left-0 right-0 h-[1px] bg-gray-200 z-10"></div>
-      <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
-        <Sidebar
-          onNewPrompt={() => handleEditorOpen()}
-          onOpenTagManager={openTagManager}
-          onAllPromptsClick={handleAllPromptsClick}
-          onFavoritesClick={handleFavoritesClick}
-          onTagClick={handleTagClick}
-          activeFilterMode={filterMode}
-          activeTagId={selectedTagId}
-          onOpenSettings={openSettings}
-        />
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f6f5f2] text-slate-800">
+      <Sidebar
+        notes={filteredNotes}
+        totalCount={notes.length}
+        selectedPath={selectedPath}
+        isLoading={isLoading}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        onCreate={handleCreate}
+        onSelect={handleSelect}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onRefresh={handleRefresh}
+        folderName={folderName}
+        notesDir={settings?.notesDir || ''}
+        searchInputRef={searchInputRef}
+      />
 
-        <MainContent
-          title={getContentTitle()}
-          prompts={filteredPrompts}
-          isLoading={isLoading}
-          onFavoriteToggle={handleFavoriteToggle}
-          onEdit={handleEditorOpen}
-          onDelete={handleDeletePrompt}
-          searchTerm={searchTerm}
-          onSearchChange={handleSearchChange}
-        />
-
-        {/* 错误消息 */}
-        {error && (
-          <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg z-50 shadow-md">
-            <span>{error}</span>
-            <button
-              className="ml-4 text-red-500 hover:text-red-700 font-semibold"
-              onClick={() => setError(null)}
-            >
-              ×
-            </button>
-          </div>
+      <main className="flex min-w-0 flex-1 flex-col">
+        {isLoading ? (
+          <LoadingState />
+        ) : selectedPath ? (
+          <NoteEditor
+            title={title}
+            body={body}
+            status={status}
+            lastSavedAt={lastSavedAt}
+            createdAt={createdAt}
+            fileName={selectedNote?.fileName || ''}
+            titleInputRef={titleInputRef}
+            onTitleChange={handleTitleChange}
+            onBodyChange={handleBodyChange}
+            onReveal={handleReveal}
+            onDelete={() => setIsDeleteOpen(true)}
+          />
+        ) : (
+          <EmptyState onCreate={handleCreate} />
         )}
+      </main>
 
-        {/* 浮动操作按钮区 */}
-        <div className="fixed right-8 bottom-8 flex flex-col space-y-3 items-end">
-          {/* 添加提示词按钮 */}
+      {error && (
+        <div className="fixed bottom-5 left-1/2 z-[60] flex max-w-[90%] -translate-x-1/2 items-start gap-2.5 rounded-xl border border-red-100 bg-white px-4 py-3 shadow-xl shadow-slate-900/5">
+          <AlertCircle size={15} className="mt-0.5 shrink-0 text-red-500" />
+          <p className="text-[12px] leading-5 text-slate-600">{error}</p>
           <button
-            className="w-14 h-14 bg-primary-500 hover:bg-primary-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors"
-            onClick={() => handleEditorOpen()}
-            aria-label="创建新提示词"
+            onClick={() => setError(null)}
+            aria-label="关闭提示"
+            className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <X size={12} />
           </button>
         </div>
+      )}
 
-        {/* 提示词编辑器模态框 */}
-        <PromptEditor
-          isOpen={isEditorOpen}
-          initialData={editingPrompt ? {
-            id: editingPrompt.id,
-            title: editingPrompt.title,
-            content: editingPrompt.content,
-            tags: editingPrompt.tags
-          } : {
-            title: '',
-            content: '',
-            tags: []
-          }}
-          onClose={handleEditorClose}
-          onSave={handleSavePrompt}
-        />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        settings={settings}
+        busy={settingsBusy}
+        onClose={() => setIsSettingsOpen(false)}
+        onChooseDir={handleChooseDir}
+        onResetDir={handleResetDir}
+        onOpenDir={handleOpenDir}
+      />
 
-        {/* 标签管理模态框 */}
-        <TagManager
-          isOpen={isTagManagerOpen}
-          onClose={closeTagManager}
-        />
-
-        {/* 设置模态框 */}
-        <Settings
-          isOpen={isSettingsOpen}
-          onClose={closeSettings}
-        />
-
-        {/* 删除确认对话框 */}
-        <ConfirmDialog
-          isOpen={isConfirmOpen}
-          title="确认删除"
-          message="确定要删除这个提示词吗？此操作无法撤销。"
-          confirmText="删除"
-          onConfirm={confirmDeletion}
-          onCancel={cancelDeletion}
-        />
-      </div>
-    </>
+      <ConfirmDialog
+        isOpen={isDeleteOpen}
+        title="删除这篇笔记？"
+        message={`《${title.trim() || '无标题笔记'}》将从保存目录中永久删除，此操作无法撤销。`}
+        confirmText="删除"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setIsDeleteOpen(false)}
+      />
+    </div>
   );
 }
+
+const LoadingState = () => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-white text-slate-400">
+    <Loader2 size={20} className="animate-spin text-primary-400" />
+    <span className="text-[12px]">正在读取笔记…</span>
+  </div>
+);
+
+const EmptyState = ({ onCreate }: { onCreate: () => void }) => (
+  <div className="flex flex-1 flex-col items-center justify-center bg-white px-6">
+    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-500">
+      <FileText size={24} strokeWidth={1.8} />
+    </div>
+    <h2 className="mt-4 text-[15px] font-semibold text-slate-700">选择一篇笔记开始</h2>
+    <p className="mt-1.5 text-[12px] text-slate-400">或新建一篇，随手记下此刻的想法</p>
+    <button
+      onClick={onCreate}
+      className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-primary-500 px-3.5 py-2 text-[12.5px] font-medium text-white shadow-sm shadow-primary-500/20 transition-colors hover:bg-primary-600"
+    >
+      <Plus size={14} />
+      新建笔记
+      <span className="ml-1 font-mono text-[10px] text-primary-100">⌘N</span>
+    </button>
+  </div>
+);
 
 export default App;

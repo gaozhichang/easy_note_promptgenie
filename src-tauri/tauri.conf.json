@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "提示词精灵",
+  "productName": "快捷记事本",
   "version": "0.1.0",
-  "identifier": "com.chriszou.promptgenie",
+  "identifier": "com.gaozhichang.quicknote",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "提示词精灵",
-        "width": 800,
-        "height": 600
+        "title": "快捷记事本",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 760,
+        "minHeight": 520,
+        "center": true,
+        "resizable": true
       }
     ],
     "security": {
@@ -23,7 +27,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
+    "category": "Productivity",
+    "shortDescription": "轻量、即开即用的本地记事本",
+    "longDescription": "快捷记事本是一款轻量的本地 Markdown 记事本：左侧笔记列表按修改时间排序，正文第一行即标题，笔记保存在你自己选择的目录中。",
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -32,8 +42,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "sql": { },
-    "clipboard-manager": null
-  }
+  "plugins": {}
 }

@@ -1,216 +1,187 @@
-import React, { useState, useEffect, useCallback } from 'react';
-// @ts-ignore
-import { FolderIcon, PlusCircleIcon, StarIcon, TagIcon, SettingsIcon, SettingsIcon as CogIcon } from 'lucide-react';
-import { getAllTags, Tag } from '../services/db'; // 引入获取标签的函数和类型
+import React from 'react';
+import {
+  ChevronRight,
+  FileText,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  X,
+} from 'lucide-react';
+import { Note } from '../services/notes';
+import { formatNoteTime } from '../utils/time';
 
 type SidebarProps = {
-  onNewPrompt: () => void;
-  onOpenTagManager?: () => void;
-  onAllPromptsClick: () => void;
-  onFavoritesClick: () => void;
-  onTagClick: (tagId: string) => void;
-  activeFilterMode: 'all' | 'favorites';
-  activeTagId: string | null;
-  onOpenSettings?: () => void;
-};
-
-// --- 精确的类型定义 ---
-// 基础 Props，所有项目共享
-type BaseSidebarItemProps = {
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-};
-
-// 通用项目的 Props，继承基础并添加必需的 icon
-type GenericSidebarItemProps = BaseSidebarItemProps & {
-  icon: React.ReactNode; // 图标现在是必需的
-};
-
-// 标签项目的 Props，继承基础并添加必需的 tagColor 和可选的 count
-type TagSidebarItemProps = BaseSidebarItemProps & {
-  tagColor: string; // 标签颜色是必需的
-  count?: number;
-  active?: boolean;
-  onClick?: () => void;
-};
-// --- 类型定义结束 ---
-
-// 通用侧边栏项目组件 (使用 GenericSidebarItemProps)
-const SidebarItem: React.FC<GenericSidebarItemProps> = ({ icon, label, active = false, onClick }) => {
-  // 非标签项的样式（所有提示词、收藏等）
-  return (
-    <li
-      className={`flex items-center px-3 py-2 rounded-lg mb-1 cursor-pointer group transition-all duration-150 ${active ? 'bg-primary-50 text-primary-600' : 'text-gray-600 hover:bg-gray-100'}`}
-      onClick={onClick}
-    >
-      <div className="flex items-center flex-1">
-        {/* icon 现在是必需的，直接使用 */}
-        <span className={`mr-2 ${active ? 'text-primary-600' : 'text-gray-500 group-hover:text-gray-700'}`}>{icon}</span>
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-    </li>
-  );
-};
-
-// 标签专属的侧边栏项目组件 (使用 TagSidebarItemProps)
-const TagSidebarItem: React.FC<TagSidebarItemProps> = ({ label, count, tagColor, active, onClick }) => {
-  return (
-    <li
-      className={`flex items-center px-3 py-2 rounded-lg mb-1 cursor-pointer group transition-all duration-150 ${active ? 'bg-primary-50 text-primary-600' : 'text-gray-600 hover:bg-gray-100'}`}
-      onClick={onClick}
-    >
-      <div className="flex items-center flex-1">
-        {/* 固定使用 TagIcon，颜色由 props 决定 */}
-        <TagIcon size={18} className="mr-2 flex-shrink-0" style={{ color: tagColor }} />
-        <span className="text-sm font-medium truncate" title={label}>{label}</span>
-      </div>
-      {/* 显示数量徽章 */}
-      {count !== undefined && count > 0 && (
-        <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 group-hover:bg-gray-200 transition-colors">
-          {count}
-        </span>
-      )}
-    </li>
-  );
+  notes: Note[];
+  totalCount: number;
+  selectedPath: string | null;
+  isLoading: boolean;
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
+  onCreate: () => void;
+  onSelect: (note: Note) => void;
+  onOpenSettings: () => void;
+  onRefresh: () => void;
+  folderName: string;
+  notesDir: string;
+  searchInputRef: React.RefObject<HTMLInputElement>;
 };
 
 const Sidebar: React.FC<SidebarProps> = ({
-  onNewPrompt,
-  onOpenTagManager,
-  onAllPromptsClick,
-  onFavoritesClick,
-  onTagClick,
-  activeFilterMode,
-  activeTagId,
-  onOpenSettings
+  notes,
+  totalCount,
+  selectedPath,
+  isLoading,
+  searchTerm,
+  onSearchChange,
+  onCreate,
+  onSelect,
+  onOpenSettings,
+  onRefresh,
+  folderName,
+  notesDir,
+  searchInputRef,
 }) => {
-  // tags 状态现在包含 count
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [isLoadingTags, setIsLoadingTags] = useState(true);
-
-  // 获取标签数据 - 改为可调用的函数
-  const fetchTags = useCallback(async () => {
-    try {
-      setIsLoadingTags(true);
-      const fetchedTags = await getAllTags(); // 获取带 count 的标签
-      setTags(fetchedTags);
-    } catch (err) {
-      console.error('加载标签失败:', err);
-    } finally {
-      setIsLoadingTags(false);
-    }
-  }, []);
-
-  // 初始加载标签
-  useEffect(() => {
-    fetchTags();
-
-    // 添加监听 tauri 事件，当标签数据变更时刷新列表
-    const setupListener = async () => {
-      try {
-        const { listen } = await import('@tauri-apps/api/event');
-        const unlisten = await listen('tags-changed', () => {
-          console.log('收到标签变更事件，刷新标签列表');
-          fetchTags();
-        });
-
-        return unlisten;
-      } catch (err) {
-        console.error('设置标签变更监听失败:', err);
-        return () => { };
-      }
-    };
-
-    const unlistenPromise = setupListener();
-
-    // 清理函数
-    return () => {
-      unlistenPromise.then(unlisten => unlisten());
-    };
-  }, [fetchTags]);
-
-  // 处理标签管理按钮点击
-  const handleTagManagerClick = () => {
-    // 打开标签管理器前刷新标签列表
-    fetchTags().then(() => {
-      if (onOpenTagManager) onOpenTagManager();
-    });
-  };
-
   return (
-    <div className="w-60 h-full border-r border-gray-200 bg-white flex flex-col">
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-gray-800">提示词精灵</h1>
+    <aside className="flex h-full w-[292px] shrink-0 flex-col border-r border-slate-200/80 bg-[#fbfaf8]">
+      <div className="px-4 pb-3 pt-5">
+        <div className="flex items-center justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-500 text-white shadow-sm shadow-primary-500/25">
+              <FileText size={15} strokeWidth={2.2} />
+            </div>
+            <h1 className="truncate text-[15px] font-semibold tracking-tight text-slate-800">
+              快捷记事本
+            </h1>
+          </div>
+
+          <button
+            onClick={onCreate}
+            title="新建笔记（⌘N）"
+            aria-label="新建笔记"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white hover:text-primary-600 hover:shadow-sm"
+          >
+            <Plus size={18} strokeWidth={2.2} />
+          </button>
         </div>
 
-        <div className="mb-2">
+        <div className="relative mt-3">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            ref={searchInputRef}
+            value={searchTerm}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="搜索笔记"
+            spellCheck={false}
+            className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-8 text-[12.5px] text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => onSearchChange('')}
+              aria-label="清空搜索"
+              className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between px-4 pb-1.5 pt-1">
+        <span className="text-[11px] font-medium text-slate-400">
+          {searchTerm ? '搜索结果' : '全部笔记'}
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] tabular-nums text-slate-400">
+            {searchTerm ? `${notes.length}/${totalCount}` : totalCount}
+          </span>
           <button
-            className="w-full flex items-center justify-center py-2 px-4 bg-primary-50 text-primary-500 hover:bg-primary-100 rounded-lg transition-colors duration-150 shadow-sm"
-            onClick={onNewPrompt}
+            onClick={onRefresh}
+            title="刷新列表"
+            aria-label="刷新列表"
+            className="flex h-5 w-5 items-center justify-center rounded text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
           >
-            <PlusCircleIcon size={18} className="mr-2" />
-            <span className="text-sm font-medium">新建提示词</span>
+            <RefreshCw size={11} />
           </button>
         </div>
       </div>
 
-      <nav className="flex-1 px-2 overflow-y-auto hide-scrollbar">
-        <ul>
-          <SidebarItem
-            icon={<FolderIcon size={18} />}
-            label="所有提示词"
-            active={activeFilterMode === 'all' && !activeTagId}
-            onClick={onAllPromptsClick}
-          />
-          <SidebarItem
-            icon={<StarIcon size={18} />}
-            label="收藏提示词"
-            active={activeFilterMode === 'favorites'}
-            onClick={onFavoritesClick}
-          />
-        </ul>
-
-        <div className="mt-6 mb-2 px-3 flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">标签</h3>
-          <button
-            className="p-1 text-gray-400 hover:text-primary-500 rounded transition-colors"
-            onClick={handleTagManagerClick}
-            title="管理标签"
-          >
-            <CogIcon size={14} />
-          </button>
-        </div>
-
-        {isLoadingTags ? (
-          <div className="px-3 text-sm text-gray-500">加载中...</div>
-        ) : (
-          <ul>
-            {tags.map(tag => (
-              <TagSidebarItem
-                key={tag.id}
-                label={tag.name}
-                tagColor={tag.color}
-                count={tag.count}
-                active={activeTagId === tag.id}
-                onClick={() => onTagClick(tag.id)}
-              />
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {isLoading ? (
+          <div className="space-y-1">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <div key={index} className="animate-pulse rounded-xl px-3 py-2.5">
+                <div className="h-3 w-2/3 rounded bg-slate-200/80" />
+                <div className="mt-2 h-2.5 w-full rounded bg-slate-200/60" />
+              </div>
             ))}
-            {tags.length === 0 && !isLoadingTags && (
-              <li className="px-3 py-2 text-sm text-gray-400">暂无标签</li>
+          </div>
+        ) : notes.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-[12.5px] text-slate-400">
+              {searchTerm ? '没有找到匹配的笔记' : '还没有笔记'}
+            </p>
+            {!searchTerm && (
+              <button
+                onClick={onCreate}
+                className="mt-3 text-[12.5px] font-medium text-primary-600 hover:text-primary-700"
+              >
+                新建第一篇
+              </button>
             )}
-          </ul>
+          </div>
+        ) : (
+          notes.map((note) => {
+            const active = note.path === selectedPath;
+            return (
+              <button
+                key={note.path}
+                onClick={() => onSelect(note)}
+                className={`group mb-0.5 w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                  active ? 'bg-primary-50' : 'hover:bg-white'
+                }`}
+              >
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[13px] ${
+                      active ? 'font-semibold text-primary-700' : 'font-medium text-slate-700'
+                    }`}
+                  >
+                    {note.title.trim() || '无标题笔记'}
+                  </span>
+                  <span
+                    className={`shrink-0 text-[10.5px] tabular-nums ${
+                      active ? 'text-primary-400' : 'text-slate-400'
+                    }`}
+                  >
+                    {formatNoteTime(note.updatedAt)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-[11.5px] leading-5 text-slate-400">
+                  {note.preview || '空白笔记'}
+                </p>
+              </button>
+            );
+          })
         )}
-      </nav>
-
-      <div className="p-4 border-t border-gray-200 mt-auto">
-        <button className="flex items-center text-gray-600 hover:text-gray-800 transition-colors duration-150 w-full" onClick={onOpenSettings}>
-          <SettingsIcon size={18} className="mr-2" />
-          <span className="text-sm">设置</span>
-        </button>
       </div>
-    </div>
+
+      <button
+        onClick={onOpenSettings}
+        title={notesDir}
+        className="group flex shrink-0 items-center gap-2 border-t border-slate-200/80 px-4 py-3 text-left transition-colors hover:bg-white/70"
+      >
+        <Settings size={14} className="shrink-0 text-slate-400 group-hover:text-slate-500" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[10.5px] text-slate-400">保存位置</div>
+          <div className="truncate text-[12px] text-slate-600">{folderName || '加载中…'}</div>
+        </div>
+        <ChevronRight size={13} className="shrink-0 text-slate-300" />
+      </button>
+    </aside>
   );
 };
 

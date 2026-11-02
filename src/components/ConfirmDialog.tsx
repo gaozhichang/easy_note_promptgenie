@@ -24,26 +24,29 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-[2px]"
+      onMouseDown={onCancel}
+    >
+      <div
+        className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="px-6 pt-5 pb-4">
+          <h2 className="text-[15px] font-semibold text-slate-800">{title}</h2>
+          <p className="mt-2 text-[13px] leading-6 text-slate-500">{message}</p>
         </div>
 
-        <div className="p-5">
-          <p className="text-sm text-gray-600">{message}</p>
-        </div>
-
-        <div className="flex justify-end p-4 space-x-3">
+        <div className="flex justify-end gap-2 bg-slate-50/80 px-5 py-3">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            className="rounded-lg px-3.5 py-1.5 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+            className="rounded-lg bg-red-500 px-3.5 py-1.5 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-red-600"
           >
             {confirmText}
           </button>
@@ -53,4 +56,4 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   );
 };
 
-export default ConfirmDialog; 
+export default ConfirmDialog;
