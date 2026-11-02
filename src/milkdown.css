@@ -1,0 +1,124 @@
+.milkdown-editor-scroll {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.milkdown-editor-scroll .milkdown {
+  --crepe-color-background: #ffffff;
+  --crepe-color-on-background: #0f172a;
+  --crepe-color-surface: #f8fafc;
+  --crepe-color-surface-low: #f1f5f9;
+  --crepe-color-on-surface: #334155;
+  --crepe-color-on-surface-variant: #64748b;
+  --crepe-color-outline: #cbd5e1;
+  --crepe-color-primary: #6147e5;
+  --crepe-color-secondary: #e9e4fd;
+  --crepe-color-on-secondary: #382786;
+  --crepe-color-inverse: #1e293b;
+  --crepe-color-on-inverse: #f8fafc;
+  --crepe-color-inline-code: #5139c4;
+  --crepe-color-error: #dc2626;
+  --crepe-color-hover: #f1f5f9;
+  --crepe-color-selected: #e9e4fd;
+  --crepe-color-inline-area: #e2e8f0;
+  --crepe-base-font-size: 15px;
+  --crepe-font-title: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Helvetica Neue', sans-serif;
+  --crepe-font-default: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Helvetica Neue', sans-serif;
+  --crepe-font-code: 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror {
+  min-height: 420px;
+  max-width: none;
+  padding: 18px 24px 32px;
+  outline: none;
+  color: #334155;
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror h1,
+.milkdown-editor-scroll .milkdown .ProseMirror h2,
+.milkdown-editor-scroll .milkdown .ProseMirror h3 {
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror h1 {
+  font-size: 27px;
+  line-height: 1.35;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror h2 {
+  font-size: 21px;
+  line-height: 1.45;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror h3 {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror p {
+  margin: 8px 0;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror a {
+  color: #5139c4;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror blockquote {
+  border-left: 3px solid #d5ccfb;
+  color: #64748b;
+  margin: 14px 0;
+  padding-left: 14px;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror code {
+  color: #5139c4;
+  background: #f3f1fe;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror pre {
+  background: #0f172a;
+  border-radius: 8px;
+  color: #e2e8f0;
+  margin: 14px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror img {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  max-width: 100%;
+}
+
+.milkdown-editor-scroll .milkdown-image-inline {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.milkdown-editor-scroll .milkdown-image-inline .image-inline {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  margin: 2px 0;
+  vertical-align: bottom;
+}
+
+.milkdown-editor-scroll .milkdown .ProseMirror p:empty::before {
+  content: '';
+}

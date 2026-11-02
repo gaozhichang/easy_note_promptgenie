@@ -11,8 +11,8 @@
 - 选中笔记后直接在右侧编辑，停止输入 0.5 秒自动保存
 - 正文第一行就是标题，保存时文件名自动跟随标题；重名时自动追加序号
 - 内置 Markdown 工具栏：标题、加粗、斜体、删除线、列表、引用、代码、链接
-- 支持源码 / 分屏 / 预览三种模式，默认分屏边写边渲染
-- 预览支持 GFM 表格、任务列表和删除线；可随时查看源码，并一键复制完整 Markdown
+- 支持源码 / 预览两种模式，默认在预览中直接编辑，输入 Markdown 即时渲染
+- 预览支持表格、任务列表、删除线和代码块；可随时查看源码，并一键复制完整 Markdown
 - 支持选择图片或直接从剪贴板粘贴图片，图片自动复制到笔记目录的 `images/` 子目录
 - 笔记仍然是普通 `.md` 文件，可以随时用其他编辑器打开
 - 保存目录可自定义，默认是 `~/快捷记事本`
@@ -40,19 +40,20 @@
 
 ## Markdown 与图片
 
-正文区域支持直接输入 Markdown 语法，也可以使用正文上方的工具栏：
+正文区域支持直接输入 Markdown 语法。默认处于「预览」模式，可以在渲染后的文档里直接编辑：
 
-- 一级/二级标题、加粗、斜体、删除线
-- 无序列表、有序列表、引用、行内代码
-- 链接：`[链接文字](https://)`
-- 图片：选择本地图片，或直接在编辑器中粘贴剪贴板图片
+- 输入 `## `、`- `、`**加粗**`、`` `代码` `` 等 Markdown 语法时自动转换并渲染
+- 选中文字会显示浮动格式工具栏
+- 支持表格、任务列表、删除线、引用、代码块和图片
+- 按 `/` 可以打开块菜单，插入标题、列表、表格、图片等
 
-编辑器右上角可以在「源码 / 分屏 / 预览」之间切换：
+编辑器右上角可以在「源码 / 预览」之间切换：
 
-- 源码：纯文本 Markdown 编辑器，带格式工具栏
-- 分屏（默认）：左侧写 Markdown，右侧实时渲染，适合边写边看效果
-- 预览：只阅读渲染后的 Markdown，支持 GFM 表格、任务列表、删除线和代码块
+- 源码：纯文本 Markdown 编辑器，带正文上方的格式工具栏
+- 预览（默认）：所见即所得编辑，边写边渲染
 - 复制源码：一键复制包含标题在内的完整 Markdown 文件内容，方便粘贴到其他编辑器
+
+图片可以按 `/` 打开块菜单选择，或直接粘贴、拖拽到编辑器中；图片会保存到当前笔记目录的 `images/`。
 
 插入或粘贴图片时，图片会被复制到当前笔记目录的 `images/` 子目录，不会写入应用内部数据库。笔记中的路径是相对路径，因此整个笔记目录可以直接拷贝或备份。
 
@@ -112,14 +113,13 @@ pnpm tauri build
 - React 18 + TypeScript + Vite
 - TailwindCSS
 - lucide-react
-- Markdown 渲染：[react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm)（均为 MIT）
-- 排版：[Tailwind Typography](https://github.com/tailwindlabs/tailwindcss-typography)（MIT）
+- Markdown 所见即所得编辑器：[Milkdown Crepe](https://github.com/Milkdown/milkdown)（MIT，基于 ProseMirror）
 
 ## 项目结构
 
 ```text
 src/                     React 界面
-  components/            侧边栏、编辑器、Markdown 预览、设置、确认框
+  components/            侧边栏、编辑器、Milkdown 所见即所得编辑器、设置、确认框
   services/notes.ts      笔记相关的 Tauri invoke 封装
   App.tsx                选中、自动保存、快捷键、窗口事件
 src-tauri/
@@ -138,8 +138,9 @@ cd src-tauri && cargo test
 ## 已知限制
 
 - 目前主要在 macOS 上验证，Windows / Linux 仅保留了基础路径处理
-- 预览不渲染原始 HTML，仅渲染标准 Markdown / GFM
-- 不支持拖拽图片、富文本编辑和云同步
+- 预览以 Markdown 语义为准，不保留原始 HTML 结构
+- 所见即所得保存时会规范化部分 Markdown 写法（如列表符号、表格对齐的空格）
+- 不支持云同步
 - 插入的图片会复制到 `images/`，删除笔记时不会自动清理
 - 删除操作不可撤销，请留意确认提示
 
