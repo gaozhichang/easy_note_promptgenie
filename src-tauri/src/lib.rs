@@ -9,10 +9,13 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const NOTE_EXTENSION: &str = "md";
 const DEFAULT_NOTE_TITLE: &str = "无标题笔记";
 const TRAY_ID: &str = "main-tray";
+/// 全局唤起快捷键：即使窗口隐藏在菜单栏，也能快速回到主界面。
+const GLOBAL_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 
 /// ⌘Q 第一次触发时先让前端保存，保存完成后再放行退出。
 static QUIT_PENDING: AtomicBool = AtomicBool::new(false);
@@ -472,9 +475,24 @@ fn quit_app(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        show_main_window(app);
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // 首次启动时确保笔记目录存在
             let _ = resolve_notes_dir(app.handle());
+
+            // 全局快捷键：窗口隐藏时也能唤起主窗口
+            match app.global_shortcut().register(GLOBAL_SHORTCUT) {
+                Ok(()) => println!("已注册全局快捷键: {GLOBAL_SHORTCUT}"),
+                Err(err) => eprintln!("注册全局快捷键失败: {err}"),
+            }
 
             // 保留系统默认菜单（复制/粘贴、退出等快捷键）
             let menu = tauri::menu::Menu::default(app.handle())?;
@@ -645,5 +663,12 @@ mod tests {
         assert_eq!(saved.file_name().unwrap(), "重复标题 2.md");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn global_shortcut_is_valid() {
+        let shortcut: tauri_plugin_global_shortcut::Shortcut =
+            GLOBAL_SHORTCUT.parse().expect("全局快捷键格式应有效");
+        assert!(!shortcut.mods.is_empty());
     }
 }
