@@ -29,6 +29,7 @@
     "active": true,
     "targets": ["app", "dmg"],
     "category": "Productivity",
+    "copyright": "Author gaozhichang@qq.com",
     "shortDescription": "轻量、即开即用的本地记事本",
     "longDescription": "快捷记事本是一款轻量的本地 Markdown 记事本：左侧笔记列表按修改时间排序，正文第一行即标题，笔记保存在你自己选择的目录中。",
     "macOS": {

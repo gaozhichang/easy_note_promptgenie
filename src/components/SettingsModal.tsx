@@ -1,6 +1,6 @@
 import React from 'react';
-import { FolderOpen, Loader2, Mail, RotateCcw, X } from 'lucide-react';
-import { openExternal, SettingsInfo } from '../services/notes';
+import { FolderOpen, Loader2, RotateCcw, X } from 'lucide-react';
+import { SettingsInfo } from '../services/notes';
 
 type SettingsModalProps = {
   isOpen: boolean;
@@ -118,26 +118,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-3">
-          <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400">
-            <span className="shrink-0 font-medium text-slate-500">关于</span>
-            <span className="shrink-0">·</span>
-            <button
-              type="button"
-              onClick={() => {
-                void openExternal('mailto:gaozhichang@qq.com').catch(() => undefined);
-              }}
-              title="发送邮件到 gaozhichang@qq.com"
-              className="inline-flex min-w-0 items-center gap-1 rounded text-slate-500 transition-colors hover:text-primary-600"
-            >
-              <Mail size={11} className="shrink-0" />
-              <span className="truncate">gaozhichang@qq.com</span>
-            </button>
-          </div>
+        <div className="flex justify-end border-t border-slate-100 bg-slate-50/70 px-5 py-3">
           <button
             onClick={onClose}
             disabled={busy}
-            className="shrink-0 rounded-lg bg-white px-3.5 py-1.5 text-[12.5px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:opacity-60"
+            className="rounded-lg bg-white px-3.5 py-1.5 text-[12.5px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:opacity-60"
           >
             完成
           </button>

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Easy Note（快捷记事本）- 一个轻量的本地 Markdown 记事本",
-  "author": "gaozhichang <gaozhichang@qq.com>",
+  "author": "gaozhichang",
   "license": "MIT",
   "repository": {
     "type": "git",

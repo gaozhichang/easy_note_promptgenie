@@ -144,11 +144,6 @@ cd src-tauri && cargo test
 - 插入的图片会复制到 `images/`，删除笔记时不会自动清理
 - 删除操作不可撤销，请留意确认提示
 
-## 关于
-
-- 作者：gaozhichang
-- 邮箱：[gaozhichang@qq.com](mailto:gaozhichang@qq.com)
-
 ## 开源协议
 
 本项目基于 [PromptGenie](https://github.com/ChrisZou/promptgenie)（MIT License）改造，原项目版权归 ChrisZou 所有。
