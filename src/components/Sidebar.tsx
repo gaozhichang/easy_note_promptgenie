@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ChevronRight,
   FileText,
@@ -27,6 +27,56 @@ type SidebarProps = {
   searchInputRef: React.RefObject<HTMLInputElement>;
 };
 
+type NoteGroupKey = 'week' | 'month' | 'earlier';
+
+type NoteGroup = {
+  key: NoteGroupKey;
+  label: string;
+  notes: Note[];
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+const MONTH_MS = 30 * DAY_MS;
+
+const DEFAULT_EXPANDED_GROUPS: Record<NoteGroupKey, boolean> = {
+  week: true,
+  month: false,
+  earlier: false,
+};
+
+const ALL_EXPANDED_GROUPS: Record<NoteGroupKey, boolean> = {
+  week: true,
+  month: true,
+  earlier: true,
+};
+
+function groupNotes(notes: Note[]): NoteGroup[] {
+  const now = Date.now();
+  const sorted = [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
+  const age = (note: Note) => now - note.updatedAt;
+
+  const groups: NoteGroup[] = [
+    {
+      key: 'week',
+      label: '最近 7 天',
+      notes: sorted.filter((note) => age(note) < WEEK_MS),
+    },
+    {
+      key: 'month',
+      label: '最近一个月',
+      notes: sorted.filter((note) => age(note) >= WEEK_MS && age(note) < MONTH_MS),
+    },
+    {
+      key: 'earlier',
+      label: '更早',
+      notes: sorted.filter((note) => age(note) >= MONTH_MS),
+    },
+  ];
+
+  return groups.filter((group) => group.notes.length > 0);
+}
+
 const Sidebar: React.FC<SidebarProps> = ({
   notes,
   totalCount,
@@ -42,6 +92,22 @@ const Sidebar: React.FC<SidebarProps> = ({
   notesDir,
   searchInputRef,
 }) => {
+  const [expandedGroups, setExpandedGroups] = useState<Record<NoteGroupKey, boolean>>(
+    DEFAULT_EXPANDED_GROUPS
+  );
+  const [expandedSearchGroups, setExpandedSearchGroups] =
+    useState<Record<NoteGroupKey, boolean>>(ALL_EXPANDED_GROUPS);
+  const groups = useMemo(() => groupNotes(notes), [notes]);
+  const searching = searchTerm.trim().length > 0;
+
+  const toggleGroup = (key: NoteGroupKey) => {
+    if (searching) {
+      setExpandedSearchGroups((previous) => ({ ...previous, [key]: !previous[key] }));
+      return;
+    }
+    setExpandedGroups((previous) => ({ ...previous, [key]: !previous[key] }));
+  };
+
   return (
     <aside className="flex h-full w-[292px] shrink-0 flex-col border-r border-slate-200/80 bg-[#fbfaf8]">
       <div className="px-4 pb-3 pt-5">
@@ -134,36 +200,73 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
         ) : (
-          notes.map((note) => {
-            const active = note.path === selectedPath;
+          groups.map((group) => {
+            const expanded = searching
+              ? expandedSearchGroups[group.key]
+              : expandedGroups[group.key];
+
             return (
-              <button
-                key={note.path}
-                onClick={() => onSelect(note)}
-                className={`group mb-0.5 w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
-                  active ? 'bg-primary-50' : 'hover:bg-white'
-                }`}
-              >
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`min-w-0 flex-1 truncate text-[13px] ${
-                      active ? 'font-semibold text-primary-700' : 'font-medium text-slate-700'
-                    }`}
-                  >
-                    {note.title.trim() || '无标题笔记'}
+              <div key={group.key} className="mb-1">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  aria-expanded={expanded}
+                  aria-label={`${group.label}，${group.notes.length} 篇笔记`}
+                  className="group flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-white/70"
+                >
+                  <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-slate-500 transition-colors group-hover:text-slate-600">
+                    <ChevronRight
+                      size={12}
+                      className={`shrink-0 transition-transform ${
+                        expanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                    <span className="truncate">{group.label}</span>
                   </span>
-                  <span
-                    className={`shrink-0 text-[10.5px] tabular-nums ${
-                      active ? 'text-primary-400' : 'text-slate-400'
-                    }`}
-                  >
-                    {formatNoteTime(note.updatedAt)}
+                  <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+                    {group.notes.length}
                   </span>
-                </div>
-                <p className="mt-0.5 truncate text-[11.5px] leading-5 text-slate-400">
-                  {note.preview || '空白笔记'}
-                </p>
-              </button>
+                </button>
+
+                {expanded && (
+                  <div className="mt-0.5">
+                    {group.notes.map((note) => {
+                      const active = note.path === selectedPath;
+                      return (
+                        <button
+                          key={note.path}
+                          onClick={() => onSelect(note)}
+                          className={`group mb-0.5 w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                            active ? 'bg-primary-50' : 'hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-baseline gap-2">
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[13px] ${
+                                active
+                                  ? 'font-semibold text-primary-700'
+                                  : 'font-medium text-slate-700'
+                              }`}
+                            >
+                              {note.title.trim() || '无标题笔记'}
+                            </span>
+                            <span
+                              className={`shrink-0 text-[10.5px] tabular-nums ${
+                                active ? 'text-primary-400' : 'text-slate-400'
+                              }`}
+                            >
+                              {formatNoteTime(note.updatedAt)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-[11.5px] leading-5 text-slate-400">
+                            {note.preview || '空白笔记'}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })
         )}
